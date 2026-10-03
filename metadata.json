@@ -1,0 +1,6 @@
+{
+  "name": "Shkoun? — شكون؟",
+  "description": "لعبة تخمين ذكية للأشخاص موجهة للعائلات والأصدقاء بدون إنترنت مع محرك استنتاج متقدم ونظام Creator Mode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
