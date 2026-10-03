@@ -80,24 +80,32 @@ shkoun/
 
 ## 🚀 طريقة التشغيل محلياً (Development)
 
-### 1. تثبيت الحزم:
+### 1. تثبيت الحزم (Bun أو npm):
 ```bash
+bun install --frozen-lockfile
+# أو
 npm install
 ```
 
 ### 2. تشغيل خادم التطوير:
 ```bash
+bun run dev
+# أو
 npm run dev
 ```
 افتح المتصفح على: `http://localhost:3000`
 
 ### 3. تشغيل الاختبارات:
 ```bash
+bun run test
+# أو
 npm run test
 ```
 
 ### 4. بناء نسخة الإنتاج للويب:
 ```bash
+bun run build
+# أو
 npm run build
 ```
 
@@ -106,27 +114,24 @@ npm run build
 ## 📱 بناء تطبيق Android APK
 
 ### الخيار 1: البناء التلقائي عبر GitHub Actions (الأسهل)
-1. ارفع المشروع إلى مستودع GitHub الخاص بك:
+1. ارفع المشروع إلى مستودع GitHub:
    ```bash
-   git init
    git add .
-   git commit -m "Initial commit of Shkoun"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/shkoun.git
-   git push -u origin main
+   git commit -m "Fix Android build and GitHub Actions"
+   git push origin main
    ```
 2. افتح تبويب **Actions** في GitHub.
-3. سيبدأ مسار العمل **Build Android APK** تلقائياً.
-4. بعد اكتمال البناء (خلال 3-4 دقائق)، حمّل ملف **`Shkoun-Debug-APK`** من قسم **Artifacts** وثبّته مباشرة على هاتفك.
+3. سيبدأ مسار العمل **Build Android APK** تلقائياً باستخدام Bun و Gradle Wrapper.
+4. بعد اكتمال البناء، ستجد ملف **`Shkoun-Debug-APK`** جاهزاً للتحميل في قسم **Artifacts**.
 
 ### الخيار 2: البناء محلياً على جهازك
-يتطلب وجود Android Studio و Java JDK 17:
+يتطلب وجود Java JDK 17:
 ```bash
 # 1. بناء ملفات الويب ومزامنتها مع مجلد Android
-npm run build
-npx cap sync android
+bun run build
+bunx cap sync android
 
-# 2. بناء APK باستخدام Gradle
+# 2. بناء APK باستخدام Gradle Wrapper
 cd android
 ./gradlew assembleDebug
 ```

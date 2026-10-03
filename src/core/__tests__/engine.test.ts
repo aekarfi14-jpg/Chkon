@@ -204,4 +204,40 @@ describe('Data Validation & Health', () => {
     expect(health.healthScore).toBeGreaterThanOrEqual(70);
     expect(health.conflictsCount).toBe(0);
   });
+
+  it('detects impossible circular ancestry cycles (A -> B -> C -> A)', () => {
+    const personA: Person = {
+      id: 'cycle_a',
+      groupId: 'g',
+      name: 'شخص أ',
+      relationships: [{ id: 'r_ab', type: 'father', targetPersonId: 'cycle_b' }],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const personB: Person = {
+      id: 'cycle_b',
+      groupId: 'g',
+      name: 'شخص ب',
+      relationships: [{ id: 'r_bc', type: 'father', targetPersonId: 'cycle_c' }],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const personC: Person = {
+      id: 'cycle_c',
+      groupId: 'g',
+      name: 'شخص ج',
+      relationships: [{ id: 'r_ca', type: 'father', targetPersonId: 'cycle_a' }],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+
+    const issues = validatePerson(personA, [personA, personB, personC]);
+    const cycleIssue = issues.find((i) => i.id === 'ancestor_cycle');
+    expect(cycleIssue).toBeDefined();
+    expect(cycleIssue?.type).toBe('error');
+  });
 });
+
