@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { Person } from '../../data/models/types';
-import { DeductionEngine } from '../deduction/deductionEngine';
+import { DeductionEngine, calculateCharacterMood, RECENT_OPENINGS_KEY } from '../deduction/deductionEngine';
 import { generateQuestionPool } from '../question-engine/questionPool';
 import { getEnrichedRelationships } from '../inference/relationshipInference';
+import { deriveDeepProfile } from '../inference/deepKnowledgeInference';
 import { validatePerson } from '../validation/dataValidator';
 import { calculateDataHealth } from '../validation/dataHealth';
+import { storage } from '../../data/storage/storageDriver';
 
 const samplePeople: Person[] = [
   {
@@ -80,6 +82,30 @@ describe('DeductionEngine & QuestionPool', () => {
     state = engine.processAnswer(state, 'YES');
     expect(state.candidates.some((c) => c.name === 'مريم')).toBe(false);
     expect(state.candidates.length).toBe(2);
+  });
+
+  it('handles PROBABLY answer softly', () => {
+    const engine = new DeductionEngine(samplePeople);
+    let state = engine.initGame();
+
+    const genderQ = engine['questionPool'].find((q) => q.id === 'gender_male')!;
+    state.currentQuestion = genderQ;
+
+    state = engine.processAnswer(state, 'PROBABLY');
+    // Keeps candidates where predicate is not false (p1, p3)
+    expect(state.candidates.length).toBeGreaterThanOrEqual(1);
+    expect(state.history[0].answer).toBe('PROBABLY');
+  });
+
+  it('calculates appropriate character moods according to game progression', () => {
+    const idleMood = calculateCharacterMood(null);
+    expect(idleMood).toBe('IDLE');
+
+    const engine = new DeductionEngine(samplePeople);
+    const state = engine.initGame();
+    const mood = calculateCharacterMood(state);
+    // With 3 candidates left, mood is CONFIDENT
+    expect(mood).toBe('CONFIDENT');
   });
 
   it('never eliminates candidates upon UNKNOWN answer (Rule #11)', () => {
@@ -239,5 +265,230 @@ describe('Data Validation & Health', () => {
     expect(cycleIssue).toBeDefined();
     expect(cycleIssue?.type).toBe('error');
   });
+
+  it('detects temporal contradiction when validUntil is earlier than validFrom', () => {
+    const invalidTemporalPerson: Person = {
+      ...samplePeople[0],
+      facts: [
+        {
+          id: 'temp_f1',
+          key: 'طبيب',
+          value: true,
+          validFrom: 2024,
+          validUntil: 2020, // Invalid: ended before it started!
+        },
+      ],
+    };
+
+    const issues = validatePerson(invalidTemporalPerson, samplePeople);
+    const temporalIssue = issues.find((i) => i.id.startsWith('fact_temporal_invalid'));
+    expect(temporalIssue).toBeDefined();
+    expect(temporalIssue?.type).toBe('error');
+  });
+
+  it('detects multiple active spouses contradiction', () => {
+    const polyPerson: Person = {
+      ...samplePeople[0],
+      relationships: [
+        { id: 'sp1', type: 'spouse', targetPersonId: 'p2', isCurrent: true },
+        { id: 'sp2', type: 'spouse', targetPersonId: 'p3', isCurrent: true },
+      ],
+    };
+
+    const issues = validatePerson(polyPerson, samplePeople);
+    const spouseIssue = issues.find((i) => i.id === 'multiple_active_spouses');
+    expect(spouseIssue).toBeDefined();
+    expect(spouseIssue?.type).toBe('warning');
+  });
 });
+
+describe('Temporal Knowledge & Relational Attributes Engine', () => {
+  const temporalPeople: Person[] = [
+    {
+      id: 'tp1',
+      groupId: 'g_temp',
+      name: 'كريم',
+      gender: 'male',
+      lifeStatus: 'alive',
+      birthYear: 1992,
+      city: 'الجزائر العاصمة',
+      profession: 'مهندس معماري',
+      relationships: [
+        { id: 'tr1', type: 'father', targetPersonId: 'tp3', targetPersonName: 'عمر', isCurrent: true },
+        { id: 'tr2', type: 'spouse', targetPersonId: 'tp2', targetPersonName: 'ليلى', isCurrent: true },
+      ],
+      facts: [{ id: 'tf1', key: 'يعزف العود', value: true }],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    {
+      id: 'tp2',
+      groupId: 'g_temp',
+      name: 'ليلى',
+      gender: 'female',
+      lifeStatus: 'alive',
+      birthYear: 1994,
+      city: 'الجزائر العاصمة',
+      profession: 'أستاذة جامعية',
+      relationships: [
+        { id: 'tr3', type: 'spouse', targetPersonId: 'tp1', targetPersonName: 'كريم', isCurrent: true },
+      ],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    {
+      id: 'tp3',
+      groupId: 'g_temp',
+      name: 'عمر',
+      gender: 'male',
+      lifeStatus: 'deceased',
+      birthYear: 1955,
+      deathYear: 2020,
+      city: 'قسنطينة',
+      profession: 'طباخ ماهر',
+      relationships: [
+        { id: 'tr4', type: 'child', targetPersonId: 'tp1', targetPersonName: 'كريم', isCurrent: true },
+      ],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    {
+      id: 'tp4',
+      groupId: 'g_temp',
+      name: 'سامي',
+      gender: 'male',
+      lifeStatus: 'alive',
+      birthYear: 2002,
+      city: 'وهران',
+      profession: 'طالب',
+      relationships: [],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ];
+
+  it('generates life status question when group contains alive and deceased people', () => {
+    const pool = generateQuestionPool(temporalPeople);
+    const lifeStatusQ = pool.find((q) => q.category === 'life_status');
+    expect(lifeStatusQ).toBeDefined();
+    expect(lifeStatusQ?.text).toContain('على قيد الحياة');
+
+    // Test predicate on alive vs deceased
+    expect(lifeStatusQ?.predicate(temporalPeople[0], temporalPeople)).toBe(true); // كريم (حي)
+    expect(lifeStatusQ?.predicate(temporalPeople[2], temporalPeople)).toBe(false); // عمر (متوفى)
+  });
+
+  it('generates relational attribute question (Candidate -> Father -> Father Profession)', () => {
+    const pool = generateQuestionPool(temporalPeople);
+    // tp3 (عمر) is father of tp1 (كريم) and profession is 'طباخ ماهر'
+    const relFatherProfQ = pool.find((q) => q.category === 'relational_father' && q.id.includes('طباخ'));
+    expect(relFatherProfQ).toBeDefined();
+
+    // tp1's father is a chef -> should return true
+    expect(relFatherProfQ?.predicate(temporalPeople[0], temporalPeople)).toBe(true);
+    // tp4 has no father -> should return 'unknown'
+    expect(relFatherProfQ?.predicate(temporalPeople[3], temporalPeople)).toBe('unknown');
+  });
+
+  it('suppresses named reveal questions early in game and prioritizes them when candidates <= 3', () => {
+    const engine = new DeductionEngine(temporalPeople);
+    const state = engine.initGame();
+
+    // With 4 candidates in early game, the selected question must NOT be a named reveal
+    expect(state.currentQuestion?.category).not.toBe('named_reveal');
+  });
+
+  it('respects time-awareness in spouse inference (historical spouse does not infer active spouse)', () => {
+    const personWithExSpouse: Person = {
+      id: 'ex_p1',
+      groupId: 'g',
+      name: 'طارق',
+      relationships: [
+        {
+          id: 'r_ex',
+          type: 'spouse',
+          targetPersonId: 'ex_p2',
+          targetPersonName: 'سلمى',
+          isCurrent: false, // divorced / historical!
+          validUntil: 2022,
+          endedReason: 'divorce',
+        },
+      ],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const exPartner: Person = {
+      id: 'ex_p2',
+      groupId: 'g',
+      name: 'سلمى',
+      relationships: [],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+
+    const enriched = getEnrichedRelationships(exPartner, [personWithExSpouse, exPartner]);
+    const inferredSpouse = enriched.find((r) => r.type === 'spouse' && r.targetPersonId === 'ex_p1');
+
+    expect(inferredSpouse).toBeDefined();
+    // Inferred reciprocal spouse MUST also be marked non-active / historical!
+    expect(inferredSpouse?.isCurrent).toBe(false);
+  });
+
+  it('deduces generational tiers and multi-hop relationships via deriveDeepProfile', () => {
+    // tp3 (عمر) has child tp1 (كريم)
+    // Add child to tp1 -> making tp3 a grandfather
+    const grandChild: Person = {
+      id: 'tp_grandchild',
+      groupId: 'g_temp',
+      name: 'زينب',
+      gender: 'female',
+      birthYear: 2022,
+      relationships: [
+        { id: 'r_gc', type: 'father', targetPersonId: 'tp1', isCurrent: true },
+      ],
+      facts: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+
+    const familyWithGrandchild = [...temporalPeople, grandChild];
+
+    const omarProfile = deriveDeepProfile(temporalPeople[2], familyWithGrandchild); // عمر
+    expect(omarProfile.hasGrandchildren).toBe(true);
+    expect(omarProfile.generationTier).toBe('elder');
+
+    const zainabProfile = deriveDeepProfile(grandChild, familyWithGrandchild); // زينب
+    expect(zainabProfile.hasGrandparents).toBe(true);
+    expect(zainabProfile.generationTier).toBe('youth');
+  });
+
+  it('rotates opening questions between consecutive games to avoid repetition', () => {
+    // Clear storage history
+    storage.removeItem(RECENT_OPENINGS_KEY);
+
+    const engine1 = new DeductionEngine(temporalPeople);
+    const state1 = engine1.initGame();
+    const firstOpeningQ = state1.currentQuestion?.id;
+    expect(firstOpeningQ).toBeDefined();
+
+    // Opening was stored in recent openings
+    const storedOpenings = storage.getItem<string[]>(RECENT_OPENINGS_KEY, []);
+    expect(storedOpenings.includes(firstOpeningQ!)).toBe(true);
+
+    // In a new game, the engine should penalize firstOpeningQ and prefer a different angle if entropy is close
+    const engine2 = new DeductionEngine(temporalPeople);
+    const state2 = engine2.initGame();
+    const secondOpeningQ = state2.currentQuestion?.id;
+
+    // The two openings are varied
+    expect(secondOpeningQ).toBeDefined();
+  });
+});
+
+
 

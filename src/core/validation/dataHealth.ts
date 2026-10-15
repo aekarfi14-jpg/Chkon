@@ -1,6 +1,6 @@
 /**
  * Data Health Calculator
- * Computes health score, completeness metrics, and issues summary for a group.
+ * Computes health score, completeness metrics, temporal freshness, and issues summary for a group.
  */
 
 import { Person, DataHealthReport, ValidationIssue } from '../../data/models/types';
@@ -13,6 +13,9 @@ export function calculateDataHealth(people: Person[]): DataHealthReport {
   let totalExplicitRels = 0;
   let totalInferredRels = 0;
   let totalCustomFacts = 0;
+  let staleProfilesCount = 0;
+
+  const sixMonthsAgo = Date.now() - 180 * 24 * 60 * 60 * 1000;
 
   people.forEach((p) => {
     // Collect issues
@@ -25,6 +28,11 @@ export function calculateDataHealth(people: Person[]): DataHealthReport {
       });
     });
 
+    // Freshness check
+    if (p.lastReviewedAt && p.lastReviewedAt < sixMonthsAgo) {
+      staleProfilesCount++;
+    }
+
     // Completeness check
     const hasImage = !!p.image;
     const hasGender = !!p.gender;
@@ -34,7 +42,6 @@ export function calculateDataHealth(people: Person[]): DataHealthReport {
     const hasFacts = (p.facts || []).length > 0;
     const hasRels = (p.relationships || []).length > 0;
 
-    // A profile is complete if it has gender, (age or city or profession), and at least some fact or relation
     const scorePoints =
       (hasGender ? 25 : 0) +
       (hasAge ? 20 : 0) +
@@ -71,7 +78,9 @@ export function calculateDataHealth(people: Person[]): DataHealthReport {
     healthScore -= warningsCount * 4;
     // Bonus for completeness ratio
     const completenessRatio = people.length > 0 ? completeProfiles / people.length : 1;
-    healthScore = Math.round(Math.max(10, Math.min(100, healthScore * (0.6 + 0.4 * completenessRatio))));
+    healthScore = Math.round(
+      Math.max(10, Math.min(100, healthScore * (0.6 + 0.4 * completenessRatio)))
+    );
   }
 
   return {
@@ -81,6 +90,7 @@ export function calculateDataHealth(people: Person[]): DataHealthReport {
     totalRelationships: totalExplicitRels + totalInferredRels,
     inferredRelationships: totalInferredRels,
     totalCustomFacts,
+    staleProfilesCount,
     issues,
     conflictsCount,
     healthScore,

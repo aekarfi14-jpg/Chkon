@@ -1,9 +1,15 @@
 /**
- * Data Validation Engine
- * Detects circular dependencies, self-referencing, logical contradictions, and inconsistencies.
+ * Time-Aware Data Validation Engine
+ * Detects circular dependencies, self-referencing, logical contradictions,
+ * temporal invalidities, and stale data freshness.
  */
 
-import { Person, ValidationIssue, Relationship } from '../../data/models/types';
+import {
+  Person,
+  ValidationIssue,
+  Relationship,
+  isRelationshipActive,
+} from '../../data/models/types';
 
 export function validatePerson(
   person: Partial<Person>,
@@ -47,7 +53,7 @@ export function validatePerson(
     });
   }
 
-  // 3. Birth year / Age check
+  // 3. Birth year & Life Status check
   const currentYear = new Date().getFullYear();
   if (person.birthYear !== undefined) {
     if (person.birthYear < 1900 || person.birthYear > currentYear) {
@@ -60,10 +66,34 @@ export function validatePerson(
     }
   }
 
-  // 4. Relationships validation
+  // Temporal life status & death year
+  if (person.lifeStatus === 'deceased' && person.deathYear !== undefined) {
+    if (person.birthYear !== undefined && person.deathYear < person.birthYear) {
+      issues.push({
+        id: 'death_before_birth',
+        type: 'error',
+        field: 'deathYear',
+        message: `سنة الوفاة (${person.deathYear}) تسبق سنة الميلاد (${person.birthYear}).`,
+      });
+    }
+  }
+
+  // 4. Temporal Validity of Facts and History Records
+  (person.facts || []).forEach((f, idx) => {
+    if (f.validFrom && f.validUntil && f.validUntil < f.validFrom) {
+      issues.push({
+        id: `fact_temporal_invalid_${idx}`,
+        type: 'error',
+        message: `الخاصية "${f.key}": تاريخ النهاية (${f.validUntil}) يسبق تاريخ البداية (${f.validFrom}).`,
+      });
+    }
+  });
+
+  // 5. Relationships validation
   const relationships = person.relationships || [];
   let fatherCount = 0;
   let motherCount = 0;
+  let activeSpouseCount = 0;
 
   for (const rel of relationships) {
     // Self-reference check
@@ -76,21 +106,39 @@ export function validatePerson(
       continue;
     }
 
+    // Check if target person exists
     const target = otherPeopleMap.get(rel.targetPersonId);
-    if (!target) continue;
+    if (!target) {
+      issues.push({
+        id: `target_missing_${rel.targetPersonId}`,
+        type: 'error',
+        message: `العلاقة تشير إلى شخص غير موجود أو تم حذفه من العالم.`,
+      });
+      continue;
+    }
+
+    // Temporal validity on relationship
+    if (rel.validFrom && rel.validUntil && rel.validUntil < rel.validFrom) {
+      issues.push({
+        id: `rel_temporal_invalid_${rel.id}`,
+        type: 'error',
+        message: `العلاقة مع "${target.name}": تاريخ نهاية العلاقة يسبق تاريخ بدايتها.`,
+      });
+    }
 
     if (rel.type === 'father') fatherCount++;
     if (rel.type === 'mother') motherCount++;
+    if (rel.type === 'spouse' && isRelationshipActive(rel)) activeSpouseCount++;
 
     // Check inverse contradiction
     const targetRels = target.relationships || [];
     const directContradiction = targetRels.find(
       (r) =>
-        (r.targetPersonId === person.id &&
-          ((rel.type === 'father' && r.type === 'father') ||
-            (rel.type === 'mother' && r.type === 'mother') ||
-            (rel.type === 'father' && r.type === 'mother') ||
-            (rel.type === 'child' && r.type === 'child')))
+        r.targetPersonId === person.id &&
+        ((rel.type === 'father' && r.type === 'father') ||
+          (rel.type === 'mother' && r.type === 'mother') ||
+          (rel.type === 'father' && r.type === 'mother') ||
+          (rel.type === 'child' && r.type === 'child'))
     );
 
     if (directContradiction) {
@@ -102,10 +150,7 @@ export function validatePerson(
     }
 
     // Check age difference with parents
-    if (
-      person.birthYear !== undefined &&
-      target.birthYear !== undefined
-    ) {
+    if (person.birthYear !== undefined && target.birthYear !== undefined) {
       if (rel.type === 'father' || rel.type === 'mother') {
         if (target.birthYear >= person.birthYear) {
           issues.push({
@@ -150,13 +195,33 @@ export function validatePerson(
     });
   }
 
-  // 5. Detect ancestor cycles (DFS)
+  if (activeSpouseCount > 1) {
+    issues.push({
+      id: 'multiple_active_spouses',
+      type: 'warning',
+      message: 'تم تحديد أكثر من زوج/زوجة حالي نشط في نفس الوقت.',
+    });
+  }
+
+  // 6. Detect ancestor cycles (DFS)
   if (person.id && hasAncestorCycle(person.id, relationships, allPeople)) {
     issues.push({
       id: 'ancestor_cycle',
       type: 'error',
       message: 'يوجد حلقة دائرية مستحيلة في شجرة النسب (شخص سلف لنفسه).',
     });
+  }
+
+  // 7. Data Freshness Check
+  if (person.lastReviewedAt) {
+    const monthsSinceReview = (Date.now() - person.lastReviewedAt) / (1000 * 60 * 60 * 24 * 30);
+    if (monthsSinceReview > 6) {
+      issues.push({
+        id: 'stale_review',
+        type: 'info',
+        message: 'لم تتم مراجعة بيانات هذا الشخص منذ أكثر من 6 أشهر (تستحق المراجعة).',
+      });
+    }
   }
 
   return issues;
@@ -203,11 +268,15 @@ function hasAncestorCycle(
 
 function getRelLabel(type: Relationship['type']): string {
   switch (type) {
-    case 'father': return 'أب';
-    case 'mother': return 'أم';
-    case 'spouse': return 'زوج/زوجة';
-    case 'child': return 'ابن/ابنة';
-    case 'sibling': return 'أخ/أخت';
-    default: return type;
+    case 'father':
+      return 'أباً';
+    case 'mother':
+      return 'أماً';
+    case 'child':
+      return 'ابناً';
+    case 'spouse':
+      return 'زوجاً';
+    case 'sibling':
+      return 'أخاً';
   }
 }

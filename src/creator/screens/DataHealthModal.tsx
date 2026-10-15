@@ -106,12 +106,25 @@ export const DataHealthModal: React.FC<DataHealthModalProps> = ({
           </div>
         </div>
 
-        {/* Completeness Summary */}
-        <div className="p-3.5 bg-slate-950/40 border border-slate-800/80 rounded-2xl flex items-center justify-between text-xs">
-          <span className="text-slate-300">الملفات الشخصية المكتملة:</span>
-          <span className="font-bold text-amber-400 tabular-nums">
-            {report.completeProfiles} من {report.totalPeople}
-          </span>
+        {/* Completeness & Freshness Summary */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-2xl flex items-center justify-between">
+            <span className="text-slate-300">الملفات الشخصية المكتملة:</span>
+            <span className="font-bold text-amber-400 tabular-nums">
+              {report.completeProfiles} من {report.totalPeople}
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-2xl flex items-center justify-between">
+            <span className="text-slate-300">الملفات التي تحتاج مراجعة:</span>
+            <span
+              className={`font-bold tabular-nums ${
+                report.staleProfilesCount > 0 ? 'text-amber-400' : 'text-emerald-400'
+              }`}
+            >
+              {report.staleProfilesCount} ملفات قديمة
+            </span>
+          </div>
         </div>
 
         {/* Detailed Issues List */}

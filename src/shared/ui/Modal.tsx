@@ -37,33 +37,33 @@ export const Modal: React.FC<ModalProps> = ({
   }[maxWidth];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
       <div
         className="fixed inset-0"
         onClick={onClose}
         aria-hidden="true"
       />
       <div
-        className={`relative w-full ${maxWidthClass} bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col z-10 transition-all transform scale-100`}
+        className={`relative w-full ${maxWidthClass} bg-[#141b26] border border-[#2d3748] rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col z-10 transition-all transform scale-100`}
         role="dialog"
         aria-modal="true"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/80 shrink-0">
-          <h3 className="text-base sm:text-lg font-bold text-slate-100 truncate">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#232c3d] shrink-0">
+          <h3 className="text-base sm:text-lg font-bold text-slate-100 truncate font-heading">
             {title}
           </h3>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#1a2332] transition-colors cursor-pointer"
             aria-label="إغلاق"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Content body */}
-        <div className="p-5 overflow-y-auto space-y-4">
+        {/* Body */}
+        <div className="overflow-y-auto p-5 space-y-4">
           {children}
         </div>
       </div>

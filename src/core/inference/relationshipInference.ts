@@ -1,14 +1,15 @@
 /**
- * Smart Relationship Inference Engine
+ * Smart Time-Aware Relationship Inference Engine
  * Deduces reciprocal and transitive relationships without requiring double data entry.
- * Explicitly marks derived relationships with isInferred: true.
+ * Distinguishes permanent biological bonds (parents, children, siblings)
+ * from temporal relationships (active vs historical spouses).
  */
 
-import { Person, Relationship } from '../../data/models/types';
+import { Person, Relationship, isRelationshipActive } from '../../data/models/types';
 
 /**
- * Returns all relationships for a person, combining their explicitly declared relationships
- * with relationships inferred logically from other people in the group.
+ * Returns all relationships for a person (both active and historical),
+ * with reciprocal and transitive relationships inferred logically.
  */
 export function getEnrichedRelationships(
   person: Person,
@@ -19,7 +20,7 @@ export function getEnrichedRelationships(
   const personMap = new Map<string, Person>();
   allPeople.forEach((p) => personMap.set(p.id, p));
 
-  // Helper to check if a relationship already exists
+  // Helper to check if relationship already exists
   const hasRelationship = (type: Relationship['type'], targetId: string) => {
     return (
       explicit.some((r) => r.type === type && r.targetPersonId === targetId) ||
@@ -34,7 +35,9 @@ export function getEnrichedRelationships(
     for (const rel of other.relationships || []) {
       if (rel.targetPersonId !== person.id) continue;
 
-      // If other says "person is my father/mother" => other is child of person
+      const active = isRelationshipActive(rel);
+
+      // If other says "person is my father/mother" => other is biological child of person (Permanent)
       if (rel.type === 'father' || rel.type === 'mother') {
         if (!hasRelationship('child', other.id)) {
           inferred.push({
@@ -42,12 +45,15 @@ export function getEnrichedRelationships(
             type: 'child',
             targetPersonId: other.id,
             targetPersonName: other.name,
+            validFrom: rel.validFrom,
+            validUntil: null,
+            isCurrent: true,
             isInferred: true,
           });
         }
       }
 
-      // If other says "person is my child" => person is parent of other
+      // If other says "person is my child" => person is parent of other (Permanent)
       if (rel.type === 'child') {
         const parentType = person.gender === 'female' ? 'mother' : 'father';
         if (!hasRelationship(parentType, other.id)) {
@@ -56,12 +62,15 @@ export function getEnrichedRelationships(
             type: parentType,
             targetPersonId: other.id,
             targetPersonName: other.name,
+            validFrom: rel.validFrom,
+            validUntil: null,
+            isCurrent: true,
             isInferred: true,
           });
         }
       }
 
-      // If other says "person is my spouse" => spouse is reciprocal
+      // If other says "person is my spouse" => spouse is reciprocal, but TIME-AWARE!
       if (rel.type === 'spouse') {
         if (!hasRelationship('spouse', other.id)) {
           inferred.push({
@@ -69,12 +78,16 @@ export function getEnrichedRelationships(
             type: 'spouse',
             targetPersonId: other.id,
             targetPersonName: other.name,
+            validFrom: rel.validFrom,
+            validUntil: rel.validUntil,
+            isCurrent: active,
+            endedReason: rel.endedReason,
             isInferred: true,
           });
         }
       }
 
-      // If other says "person is my sibling" => sibling is reciprocal
+      // If other says "person is my sibling" => sibling is reciprocal (Permanent)
       if (rel.type === 'sibling') {
         if (!hasRelationship('sibling', other.id)) {
           inferred.push({
@@ -82,6 +95,7 @@ export function getEnrichedRelationships(
             type: 'sibling',
             targetPersonId: other.id,
             targetPersonName: other.name,
+            isCurrent: true,
             isInferred: true,
           });
         }
@@ -91,13 +105,11 @@ export function getEnrichedRelationships(
 
   // 2. Transitive Siblings: If person has parent P, and other has parent P (and person !== other)
   const myParents = new Set<string>();
-  // from explicit
   explicit.forEach((r) => {
     if (r.type === 'father' || r.type === 'mother') {
       myParents.add(r.targetPersonId);
     }
   });
-  // from others who declared person as child
   allPeople.forEach((p) => {
     if (p.relationships?.some((r) => r.type === 'child' && r.targetPersonId === person.id)) {
       myParents.add(p.id);
@@ -107,14 +119,11 @@ export function getEnrichedRelationships(
   if (myParents.size > 0) {
     for (const other of allPeople) {
       if (other.id === person.id) continue;
-      // check other's parents
+
       const otherParents = new Set<string>();
       (other.relationships || []).forEach((r) => {
         if (r.type === 'father' || r.type === 'mother') {
           otherParents.add(r.targetPersonId);
-        }
-        if (r.type === 'child' && r.targetPersonId === other.id) {
-          // not relevant
         }
       });
       allPeople.forEach((p) => {
@@ -123,7 +132,6 @@ export function getEnrichedRelationships(
         }
       });
 
-      // If they share at least one parent
       const sharesParent = Array.from(myParents).some((parentId) => otherParents.has(parentId));
       if (sharesParent && !hasRelationship('sibling', other.id)) {
         inferred.push({
@@ -131,6 +139,7 @@ export function getEnrichedRelationships(
           type: 'sibling',
           targetPersonId: other.id,
           targetPersonName: other.name,
+          isCurrent: true,
           isInferred: true,
         });
       }
@@ -146,6 +155,16 @@ export function getEnrichedRelationships(
     }
     return rel;
   });
+}
+
+/**
+ * Returns strictly active relationships (both explicit and inferred)
+ */
+export function getCurrentEnrichedRelationships(
+  person: Person,
+  allPeople: Person[]
+): Relationship[] {
+  return getEnrichedRelationships(person, allPeople).filter(isRelationshipActive);
 }
 
 /**

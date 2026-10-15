@@ -1,24 +1,25 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Group, Person } from '../../data/models/types';
-import { Play, Users, PlusCircle } from 'lucide-react';
+import { MascotCharacter } from '../../shared/character/MascotCharacter';
 import { audio } from '../../shared/sound/audioService';
+import { Play, Globe, Wrench, Settings } from 'lucide-react';
 
 interface GameStartScreenProps {
-  groups: Group[];
   activeGroup: Group;
   people: Person[];
-  onSelectGroup: (group: Group) => void;
   onStartGame: () => void;
-  onGoToCreator: () => void;
+  onOpenWorlds: () => void;
+  onOpenCreator: () => void;
+  onOpenSettings: () => void;
 }
 
 export const GameStartScreen: React.FC<GameStartScreenProps> = ({
-  groups,
   activeGroup,
   people,
-  onSelectGroup,
   onStartGame,
-  onGoToCreator,
+  onOpenWorlds,
+  onOpenCreator,
+  onOpenSettings,
 }) => {
   const canPlay = people.length >= 2;
 
@@ -28,94 +29,120 @@ export const GameStartScreen: React.FC<GameStartScreenProps> = ({
     onStartGame();
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[78vh] px-4 max-w-xl mx-auto text-center space-y-6 animate-in fade-in duration-300">
-      {/* Visual Identity Logo & Mark */}
-      <div className="relative">
-        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-amber-500/20 to-slate-900 border border-amber-500/30 flex items-center justify-center shadow-xl shadow-amber-500/5 mx-auto">
-          <span className="text-5xl sm:text-6xl font-black text-amber-400 font-heading">
-            ؟
-          </span>
-        </div>
-      </div>
+  // Keyboard shortcut: Press Enter or Space to quickly start
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && canPlay) {
+        e.preventDefault();
+        handleStart();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canPlay]);
 
-      {/* Main Title & Subtitle */}
-      <div className="space-y-2">
-        <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-100 font-heading">
-          شكون؟ — Shkoun
+  return (
+    <div className="flex flex-col items-center justify-between min-h-[84vh] px-4 max-w-md mx-auto text-center select-none animate-in fade-in duration-200">
+      {/* Top Atmosphere: Title & Natural Unboxed Metadata (Zero-Pill Rule) */}
+      <div className="pt-3 space-y-1.5">
+        <div className="text-xs text-slate-400 font-medium">
+          <span className="text-[#d49b45] font-semibold">استنتاج وتخمين</span>
+          <span aria-hidden="true" className="mx-2 text-slate-600">·</span>
+          <span>100% دون إنترنت</span>
+        </div>
+
+        <h1 className="text-4xl sm:text-5xl font-black text-slate-100 tracking-tight font-heading">
+          شكون؟
         </h1>
-        <p className="text-sm sm:text-base text-slate-300 max-w-md mx-auto leading-relaxed">
-          فكر في أي شخص من عائلتك أو أصدقائك، وسأطرح عليك أسئلة ذكية لأتعرف عليه!
+        <p className="text-xs sm:text-sm text-slate-400 font-medium max-w-xs mx-auto">
+          فكر في أي شخص في بالك... والحكيم سيكتشفه بذكاء وفراسة
         </p>
       </div>
 
-      {/* Group Selector Card */}
-      <div className="w-full p-4 bg-slate-900/60 border border-slate-800 rounded-3xl space-y-3">
-        <div className="flex items-center justify-between text-xs text-slate-400 font-semibold px-1">
-          <span>اختر المجموعة:</span>
-          <span>{people.length} أشخاص مسجلين</span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {groups.map((grp) => {
-            const isSelected = grp.id === activeGroup.id;
-            return (
-              <button
-                key={grp.id}
-                onClick={() => {
-                  audio.playClick();
-                  onSelectGroup(grp);
-                }}
-                className={`p-3 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
-                  isSelected
-                    ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-sm'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700'
-                }`}
-              >
-                <Users className="w-4 h-4 shrink-0" />
-                <span className="truncate w-full text-center">{grp.name}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {activeGroup.description && (
-          <p className="text-[11px] text-slate-400 text-center pt-1 border-t border-slate-800/80">
-            {activeGroup.description}
-          </p>
-        )}
+      {/* Center Stage: Interactive Mascot Character */}
+      <div className="my-auto py-2">
+        <MascotCharacter mood="IDLE" size="lg" showDialogue={true} interactive={true} />
       </div>
 
-      {/* Primary Play Button or Warning */}
-      {canPlay ? (
-        <button
-          onClick={handleStart}
-          className="w-full sm:w-80 py-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-lg sm:text-xl rounded-2xl shadow-xl shadow-amber-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+      {/* Bottom Controls Area */}
+      <div className="w-full space-y-3 pb-3">
+        {/* Active World Card */}
+        <div
+          onClick={() => {
+            audio.playClick();
+            onOpenWorlds();
+          }}
+          className="w-full p-3.5 bg-[#141b26] hover:bg-[#1a2332] border border-[#2d3748] hover:border-[#d49b45]/50 rounded-xl flex items-center justify-between cursor-pointer transition-all duration-150"
         >
-          <Play className="w-5 h-5 fill-current" />
-          <span>ابدأ التخمين الآن</span>
-        </button>
-      ) : (
-        <div className="w-full p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-2">
-          <p className="text-xs text-amber-300">
-            تحتاج المجموعة إلى شخصين على الأقل لبدء اللعبة. أضف بعض الأشخاص أولاً.
-          </p>
+          <div className="text-right min-w-0">
+            <span className="text-[10px] text-slate-500 block font-medium">العالم النشط</span>
+            <h4 className="text-sm font-bold text-slate-100 truncate">
+              {activeGroup.name}
+            </h4>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-semibold text-[#d49b45] shrink-0">
+            <span>{people.length} أشخاص</span>
+            <span className="text-slate-500">◀</span>
+          </div>
+        </div>
+
+        {/* Primary Play Button */}
+        {canPlay ? (
+          <button
+            onClick={handleStart}
+            className="w-full py-4 bg-[#d49b45] hover:bg-[#e0a852] active:bg-[#c38a36] text-slate-950 font-bold text-lg rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer font-heading active:scale-[0.98]"
+          >
+            <Play className="w-5 h-5 fill-current" />
+            <span>ابدأ التحدي (Enter)</span>
+          </button>
+        ) : (
           <button
             onClick={() => {
               audio.playClick();
-              onGoToCreator();
+              onOpenCreator();
             }}
-            className="px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors inline-flex items-center gap-1.5"
+            className="w-full py-3.5 bg-[#141b26] border border-[#d49b45]/40 text-[#d49b45] font-semibold text-sm rounded-xl transition-all"
           >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>إضافة أشخاص للمجموعة</span>
+            أضف شخصين على الأقل في صانع العوالم للعب
+          </button>
+        )}
+
+        {/* Secondary Hub Actions: Worlds · Creator · Settings */}
+        <div className="grid grid-cols-3 gap-2 pt-0.5">
+          <button
+            onClick={() => {
+              audio.playClick();
+              onOpenWorlds();
+            }}
+            className="py-2.5 px-2 bg-[#141b26] hover:bg-[#1a2332] border border-[#2d3748] rounded-xl text-slate-300 hover:text-slate-100 text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer"
+          >
+            <Globe className="w-4 h-4 text-emerald-400" />
+            <span>العوالم</span>
+          </button>
+
+          <button
+            onClick={() => {
+              audio.playClick();
+              onOpenCreator();
+            }}
+            className="py-2.5 px-2 bg-[#141b26] hover:bg-[#1a2332] border border-[#2d3748] rounded-xl text-slate-300 hover:text-slate-100 text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer"
+          >
+            <Wrench className="w-4 h-4 text-[#d49b45]" />
+            <span>صانع العوالم</span>
+          </button>
+
+          <button
+            onClick={() => {
+              audio.playClick();
+              onOpenSettings();
+            }}
+            className="py-2.5 px-2 bg-[#141b26] hover:bg-[#1a2332] border border-[#2d3748] rounded-xl text-slate-300 hover:text-slate-100 text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer"
+          >
+            <Settings className="w-4 h-4 text-slate-400" />
+            <span>الإعدادات</span>
           </button>
         </div>
-      )}
-
-      {/* Offline Assurance note */}
-      <div className="text-[11px] text-slate-500">
-        100% Offline · لا يحتاج إنترنت · بياناتك خاصة ومحفوظة على جهازك فقط
       </div>
     </div>
   );

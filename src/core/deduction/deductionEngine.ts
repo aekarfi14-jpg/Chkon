@@ -10,8 +10,12 @@ import {
   Answer,
   GamePhase,
   AnswerHistoryItem,
+  CharacterMood,
 } from '../../data/models/types';
 import { generateQuestionPool } from '../question-engine/questionPool';
+import { storage } from '../../data/storage/storageDriver';
+
+export const RECENT_OPENINGS_KEY = 'shkoun_recent_openings';
 
 export interface GameState {
   allPeople: Person[];
@@ -87,20 +91,54 @@ export class DeductionEngine {
     }
 
     const phase = this.determinePhase(state);
+    const historyCount = state.history.length;
 
-    // Target specificity for the current phase
-    // Discovery: prefers low specificity (0.1 - 0.35)
-    // Narrowing: prefers medium specificity (0.35 - 0.65)
-    // Reveal: prefers high specificity (0.65 - 1.0)
-    let targetSpecificity = 0.25;
-    if (phase === 'narrowing') targetSpecificity = 0.5;
-    if (phase === 'reveal') targetSpecificity = 0.85;
+    // Smart Multi-Tier Pacing Curve:
+    // 1. Broad Discovery (q1-q2): 0.18 - 0.25 (gender, life status, generation tier)
+    // 2. Structural Narrowing (q3-q4): 0.35 - 0.45 (family structure, age thresholds, broad cities)
+    // 3. Attribute Narrowing (q5-q6): 0.48 - 0.58 (professions, specific cities, habits)
+    // 4. Relational & Deep Clues (q7+): 0.60 - 0.75 (father's job, spouse traits, hobbies)
+    // 5. Endgame Reveal (candidates <= 3): 0.88 - 0.95 (unique custom facts, named reveal)
+    let targetSpecificity = 0.22;
+    if (candidates.length <= 3) {
+      targetSpecificity = 0.90;
+    } else if (historyCount >= 6) {
+      targetSpecificity = 0.68;
+    } else if (historyCount >= 4) {
+      targetSpecificity = 0.52;
+    } else if (historyCount >= 2) {
+      targetSpecificity = 0.38;
+    }
 
     let bestQuestion: Question | null = null;
     let highestScore = -Infinity;
 
+    // Track semantic families already asked in current game
+    const askedFamilies = new Set<string>();
+    state.history.forEach((h) => {
+      const fam = h.question.family || h.question.category;
+      if (fam) askedFamilies.add(fam);
+    });
+
+    // Opening Question Rotation: retrieve recent openings from storage
+    const recentOpenings =
+      historyCount === 0
+        ? storage.getItem<string[]>(RECENT_OPENINGS_KEY, [])
+        : [];
+
     for (const q of this.questionPool) {
       if (askedQuestionIds.has(q.id)) {
+        continue;
+      }
+
+      const qFamily = q.family || q.category;
+
+      // Semantic duplicate check:
+      // Single-shot families like gender, life_status, and marital_status shouldn't be asked twice
+      if (
+        (qFamily === 'gender' || qFamily === 'life_status' || qFamily === 'marital_status') &&
+        askedFamilies.has(qFamily)
+      ) {
         continue;
       }
 
@@ -125,36 +163,78 @@ export class DeductionEngine {
       if (totalKnown === 0) continue;
 
       // 1. Raw Information Gain (Entropy Reduction)
-      // Ideal split is 50/50 -> balanceScore = 1.0
-      // Worst split is (N-1)/1 -> balanceScore is close to 0
       const balanceRatio = Math.min(yesCount, noCount) / Math.max(yesCount, noCount);
       const entropyGain = balanceRatio; // in [0, 1]
 
-      // 2. Known vs Unknown Penalty
-      // Prefer questions where candidates have clear known facts
+      // 2. Known vs Unknown Completeness
       const completenessFactor = totalKnown / candidates.length;
 
       // 3. Pacing Curve Alignment
-      // Calculate how close the question's specificity is to our desired phase target
       const specificityDiff = Math.abs(q.specificity - targetSpecificity);
-      const pacingScore = 1.0 - specificityDiff; // higher is better aligned
+      const pacingScore = Math.max(0.1, 1.0 - specificityDiff);
 
       // 4. Early-Game Singleton Penalty
-      // If we are in discovery phase, heavily penalize questions where yesCount === 1
-      // (so we don't accidentally reveal the person in question 1 or 2)
       let singletonPenalty = 1.0;
       if (phase === 'discovery' && (yesCount === 1 || noCount === 1) && candidates.length > 3) {
-        singletonPenalty = 0.15; // severe penalty
+        singletonPenalty = 0.15;
+      }
+
+      // 5. Named Question Suppression (Rule #8: Names are for Endgame Reveal only)
+      let namedMultiplier = 1.0;
+      if (qFamily === 'named_reveal') {
+        if (candidates.length > 3) {
+          namedMultiplier = 0.05; // heavily suppress in Discovery & early Narrowing
+        } else {
+          namedMultiplier = 1.6; // bonus near the end for dramatic final reveal
+        }
+      }
+
+      // 6. Relational Attribute Bonus (Rule #7: Prefer paths to attributes)
+      let relationalBonus = 1.0;
+      if (q.category.startsWith('relational_') && (historyCount >= 3 || phase === 'reveal')) {
+        relationalBonus = 1.3;
+      }
+
+      // 7. Semantic Redundancy Penalty (if family was already asked in history)
+      let redundancyPenalty = 1.0;
+      if (askedFamilies.has(qFamily)) {
+        redundancyPenalty = 0.65;
+      }
+
+      // 8. Session Variety / Anti-Repetition Bonus
+      // If this is question #1, heavily penalize questions used as openings in recent games
+      let openingVarietyPenalty = 1.0;
+      if (historyCount === 0 && recentOpenings.length > 0) {
+        const recentIndex = recentOpenings.indexOf(q.id);
+        if (recentIndex === 0) {
+          openingVarietyPenalty = 0.12; // used in very last game!
+        } else if (recentIndex > 0) {
+          openingVarietyPenalty = 0.35; // used recently
+        }
       }
 
       // Composite Score
       const totalScore =
-        (entropyGain * 0.4 + pacingScore * 0.4 + completenessFactor * 0.2) * singletonPenalty;
+        (entropyGain * 0.35 + pacingScore * 0.35 + completenessFactor * 0.3) *
+        singletonPenalty *
+        namedMultiplier *
+        relationalBonus *
+        redundancyPenalty *
+        openingVarietyPenalty;
 
       if (totalScore > highestScore) {
         highestScore = totalScore;
         bestQuestion = q;
       }
+    }
+
+    // Persist opening question so next game rotates to another axis
+    if (bestQuestion && historyCount === 0) {
+      const updatedOpenings = [
+        bestQuestion.id,
+        ...recentOpenings.filter((id) => id !== bestQuestion!.id),
+      ].slice(0, 5);
+      storage.setItem(RECENT_OPENINGS_KEY, updatedOpenings);
     }
 
     return bestQuestion;
@@ -187,6 +267,15 @@ export class DeductionEngine {
           return res !== false;
         });
       }
+    } else if (answer === 'PROBABLY') {
+      // PROBABLY / غالباً: Soft filter keeping true and unknown, eliminating strict false
+      const filtered = nextCandidates.filter((c) => {
+        const res = question.predicate(c, this.allPeople);
+        return res !== false;
+      });
+      if (filtered.length > 0) {
+        nextCandidates = filtered;
+      }
     } else if (answer === 'NO') {
       // Keep candidates where predicate is false
       nextCandidates = nextCandidates.filter((c) => {
@@ -201,7 +290,7 @@ export class DeductionEngine {
         });
       }
     } else {
-      // UNKNOWN: Rule #11: "لا تعتبر الإجابة 'لا'. اعتبرها: Unknown ولا تستبعد الأشخاص بناءً عليها."
+      // UNKNOWN: Rule: Never eliminate candidates on unknown
       // Keep all candidates! Just increment consecutive unknown count to avoid deadlock.
     }
 
@@ -322,3 +411,35 @@ export class DeductionEngine {
     return replayState;
   }
 }
+
+/**
+ * Derives the mascot's behavioral expression and body posture from engine state
+ */
+export function calculateCharacterMood(
+  state: GameState | null,
+  transientMood?: CharacterMood | null
+): CharacterMood {
+  if (transientMood) {
+    return transientMood;
+  }
+  if (!state) {
+    return 'IDLE';
+  }
+  if (state.phase === 'guessing' || state.guessedPerson) {
+    return 'REVEAL';
+  }
+  if (state.consecutiveUnknownCount >= 2) {
+    return 'UNCERTAIN';
+  }
+  if (state.candidates.length <= 3) {
+    return 'CONFIDENT';
+  }
+  if (state.candidates.length <= 5) {
+    return 'FOCUSED';
+  }
+  if (state.phase === 'discovery' || state.history.length <= 1) {
+    return 'CURIOUS';
+  }
+  return 'THINKING';
+}
+

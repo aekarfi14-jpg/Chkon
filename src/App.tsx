@@ -9,6 +9,8 @@ import { GuessScreen } from './game/screens/GuessScreen';
 import { VictoryScreen } from './game/screens/VictoryScreen';
 import { AmbiguousScreen } from './game/screens/AmbiguousScreen';
 import { CreatorDashboard } from './creator/screens/CreatorDashboard';
+import { WorldSelectorModal } from './shared/worlds/WorldSelectorModal';
+import { SettingsModal } from './shared/settings/SettingsModal';
 
 type AppScreen = 'start' | 'playing' | 'guessing' | 'victory' | 'ambiguous';
 
@@ -17,6 +19,10 @@ export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string>('');
   const [people, setPeople] = useState<Person[]>([]);
+
+  // Modals state
+  const [isWorldsOpen, setIsWorldsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Game specific state
   const [screen, setScreen] = useState<AppScreen>('start');
@@ -137,7 +143,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-body selection:bg-amber-500 selection:text-slate-950">
+    <div className="min-h-screen bg-celestial-canvas text-[#e5edf7] flex flex-col font-body selection:bg-[#d49b45] selection:text-slate-950">
       <Header
         currentMode={currentMode}
         onModeChange={(m) => {
@@ -147,9 +153,11 @@ export default function App() {
           }
         }}
         activeGroupName={activeGroup?.name}
+        onOpenWorlds={() => setIsWorldsOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6">
+      <main className="flex-1 max-w-4xl w-full mx-auto p-3 sm:p-5">
         {currentMode === 'creator' ? (
           activeGroup && (
             <CreatorDashboard
@@ -164,12 +172,12 @@ export default function App() {
           <>
             {screen === 'start' && activeGroup && (
               <GameStartScreen
-                groups={groups}
                 activeGroup={activeGroup}
                 people={people}
-                onSelectGroup={(grp) => setActiveGroupId(grp.id)}
                 onStartGame={handleStartGame}
-                onGoToCreator={() => setCurrentMode('creator')}
+                onOpenWorlds={() => setIsWorldsOpen(true)}
+                onOpenCreator={() => setCurrentMode('creator')}
+                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
 
@@ -213,6 +221,34 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* World Selection Modal */}
+      {isWorldsOpen && activeGroup && (
+        <WorldSelectorModal
+          isOpen={isWorldsOpen}
+          onClose={() => setIsWorldsOpen(false)}
+          groups={groups}
+          activeGroupId={activeGroup.id}
+          onSelectGroup={(grp) => {
+            setActiveGroupId(grp.id);
+            setScreen('start');
+          }}
+          onRefreshData={refreshData}
+          onOpenCreator={() => {
+            setCurrentMode('creator');
+            setScreen('start');
+          }}
+        />
+      )}
+
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          onDataReset={refreshData}
+        />
+      )}
     </div>
   );
 }

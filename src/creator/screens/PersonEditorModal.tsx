@@ -1,11 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { Person, Relationship, CustomFact, Gender, RelationshipType } from '../../data/models/types';
+import {
+  Person,
+  Relationship,
+  CustomFact,
+  Gender,
+  LifeStatus,
+  RelationshipType,
+  getCurrentLifeStatus,
+} from '../../data/models/types';
 import { Modal } from '../../shared/ui/Modal';
 import { Avatar } from '../../shared/ui/Avatar';
 import { compressImage } from '../../shared/image/imageCompressor';
 import { validatePerson } from '../../core/validation/dataValidator';
 import { getEnrichedRelationships } from '../../core/inference/relationshipInference';
-import { Upload, Trash2, Plus, AlertTriangle, Sparkles, HeartHandshake } from 'lucide-react';
+import {
+  Upload,
+  Trash2,
+  Plus,
+  AlertTriangle,
+  Sparkles,
+  HeartHandshake,
+  History,
+} from 'lucide-react';
 import { audio } from '../../shared/sound/audioService';
 
 interface PersonEditorModalProps {
@@ -28,7 +44,9 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
   const [name, setName] = useState('');
   const [image, setImage] = useState<string | undefined>(undefined);
   const [gender, setGender] = useState<Gender | undefined>('male');
+  const [lifeStatus, setLifeStatus] = useState<LifeStatus>('alive');
   const [birthYear, setBirthYear] = useState<number | undefined>(undefined);
+  const [deathYear, setDeathYear] = useState<number | undefined>(undefined);
   const [city, setCity] = useState('');
   const [profession, setProfession] = useState('');
   const [relationships, setRelationships] = useState<Relationship[]>([]);
@@ -38,6 +56,7 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
   // Relationship adding inputs
   const [relTargetId, setRelTargetId] = useState<string>('');
   const [relType, setRelType] = useState<RelationshipType>('father');
+  const [isSpouseCurrent, setIsSpouseCurrent] = useState<boolean>(true);
 
   // Load existing person data or reset
   useEffect(() => {
@@ -45,7 +64,9 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
       setName(personToEdit.name);
       setImage(personToEdit.image);
       setGender(personToEdit.gender || 'male');
+      setLifeStatus(getCurrentLifeStatus(personToEdit));
       setBirthYear(personToEdit.birthYear);
+      setDeathYear(personToEdit.deathYear);
       setCity(personToEdit.city || '');
       setProfession(personToEdit.profession || '');
       setRelationships(personToEdit.relationships ? [...personToEdit.relationships] : []);
@@ -54,7 +75,9 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
       setName('');
       setImage(undefined);
       setGender('male');
+      setLifeStatus('alive');
       setBirthYear(undefined);
+      setDeathYear(undefined);
       setCity('');
       setProfession('');
       setRelationships([]);
@@ -62,6 +85,7 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
     }
     setNewFactText('');
     setRelTargetId('');
+    setIsSpouseCurrent(true);
   }, [personToEdit, isOpen]);
 
   const otherCandidates = allPeopleInGroup.filter((p) => p.id !== personToEdit?.id);
@@ -85,7 +109,7 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
     const targetPerson = allPeopleInGroup.find((p) => p.id === relTargetId);
     if (!targetPerson) return;
 
-    // Check if relationship already exists
+    // Check duplicate
     if (relationships.some((r) => r.type === relType && r.targetPersonId === relTargetId)) {
       return;
     }
@@ -95,6 +119,7 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
       type: relType,
       targetPersonId: relTargetId,
       targetPersonName: targetPerson.name,
+      isCurrent: relType === 'spouse' ? isSpouseCurrent : true,
       isInferred: false,
     };
 
@@ -110,15 +135,15 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
 
   // Add Custom Fact
   const handleAddFact = () => {
-    const trimmed = newFactText.trim();
-    if (!trimmed) return;
-    if (facts.some((f) => f.key.toLowerCase() === trimmed.toLowerCase())) return;
-
+    if (!newFactText.trim()) return;
     const newFact: CustomFact = {
       id: `fact_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      key: trimmed,
+      key: newFactText.trim(),
       value: true,
-      category: 'خصائص',
+      category: 'عام',
+      validFrom: Date.now(),
+      validUntil: null,
+      recordedAt: Date.now(),
     };
 
     setFacts([...facts, newFact]);
@@ -131,27 +156,16 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
     audio.playClick();
   };
 
-  // Quick suggestions for custom facts
-  const suggestedFacts = [
-    'يلعب كرة القدم',
-    'يحب الشخشوخة',
-    'طباخ(ة) ماهر(ة)',
-    'يحب السفر والرحلات',
-    'مهووس بالتكنولوجيا',
-    'يحب القراءة والمطالعة',
-    'يسوق سيارة',
-    'سريع الغضب وعصبي',
-    'هادئ جداً',
-  ].filter((s) => !facts.some((f) => f.key === s));
-
-  // Current draft person for validation
+  // Live validation
   const currentDraftPerson: Person = {
-    id: personToEdit?.id || 'temp_id',
+    id: personToEdit?.id || 'draft',
     groupId,
     name,
     image,
     gender,
+    lifeStatus,
     birthYear,
+    deathYear: lifeStatus === 'deceased' ? deathYear : undefined,
     city,
     profession,
     relationships,
@@ -177,13 +191,18 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
       name: name.trim(),
       image,
       gender,
+      lifeStatus,
       birthYear: birthYear || undefined,
+      deathYear: lifeStatus === 'deceased' ? deathYear || undefined : undefined,
       city: city.trim() || undefined,
       profession: profession.trim() || undefined,
+      cityHistory: personToEdit?.cityHistory,
+      professionHistory: personToEdit?.professionHistory,
       relationships,
       facts,
       createdAt: personToEdit?.createdAt || Date.now(),
       updatedAt: Date.now(),
+      lastReviewedAt: Date.now(),
     };
 
     onSave(savedPerson);
@@ -277,6 +296,23 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
+                  الحالة الحياتية
+                </label>
+                <select
+                  value={lifeStatus}
+                  onChange={(e) => setLifeStatus(e.target.value as LifeStatus)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-amber-500"
+                >
+                  <option value="alive">على قيد الحياة</option>
+                  <option value="deceased">متوفى (رحمه الله)</option>
+                  <option value="unknown">غير محدد</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
                   سنة الميلاد {birthYear ? `(العمر: ~${currentYear - birthYear})` : ''}
                 </label>
                 <input
@@ -291,12 +327,33 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-amber-500"
                 />
               </div>
+
+              {lifeStatus === 'deceased' ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                    سنة الوفاة (اختياري)
+                  </label>
+                  <input
+                    type="number"
+                    min="1900"
+                    max={currentYear}
+                    value={deathYear ?? ''}
+                    onChange={(e) =>
+                      setDeathYear(e.target.value ? parseInt(e.target.value, 10) : undefined)
+                    }
+                    placeholder="مثال: 2021"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              ) : (
+                <div />
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
-                  المدينة / مكان الإقامة
+                  المدينة الحالية / مكان الإقامة
                 </label>
                 <input
                   type="text"
@@ -309,7 +366,7 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
-                  المهنة أو الدراسة
+                  المهنة أو الدراسة الحالية
                 </label>
                 <input
                   type="text"
@@ -320,6 +377,35 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
                 />
               </div>
             </div>
+
+            {/* Past Historical Attributes Indicator */}
+            {((personToEdit?.cityHistory && personToEdit.cityHistory.length > 1) ||
+              (personToEdit?.professionHistory && personToEdit.professionHistory.length > 1)) && (
+              <div className="p-2.5 bg-slate-900/60 border border-slate-800 rounded-xl text-xs space-y-1 text-slate-400">
+                <span className="font-bold flex items-center gap-1 text-amber-400">
+                  <History className="w-3.5 h-3.5" />
+                  <span>السجل الزمني المحفوظ في قاعدة البيانات:</span>
+                </span>
+                {personToEdit?.cityHistory && personToEdit.cityHistory.length > 1 && (
+                  <p className="text-[11px]">
+                    مدن سابقة:{' '}
+                    {personToEdit.cityHistory
+                      .filter((r) => r.validUntil !== null && r.validUntil !== undefined)
+                      .map((r) => r.value)
+                      .join('، ')}
+                  </p>
+                )}
+                {personToEdit?.professionHistory && personToEdit.professionHistory.length > 1 && (
+                  <p className="text-[11px]">
+                    مهن سابقة:{' '}
+                    {personToEdit.professionHistory
+                      .filter((r) => r.validUntil !== null && r.validUntil !== undefined)
+                      .map((r) => r.value)
+                      .join('، ')}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -328,102 +414,131 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-200">
               <HeartHandshake className="w-4 h-4 text-amber-400" />
-              <span>العلاقات العائلية (Smart Relationships)</span>
+              <span>العلاقات العائلية الذكية (Smart Relationships)</span>
             </div>
             <span className="text-[11px] text-slate-400">
-              النظام يستنتج العلاقات العكسية تلقائياً
+              النظام يستنتج العلاقات العكسية والزمنية تلقائياً
             </span>
           </div>
 
           {/* Add relationship controls */}
           {otherCandidates.length > 0 ? (
-            <div className="flex flex-col sm:flex-row gap-2">
-              <select
-                value={relType}
-                onChange={(e) => setRelType(e.target.value as RelationshipType)}
-                className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-amber-500 shrink-0"
-              >
-                <option value="father">أب للشخص</option>
-                <option value="mother">أم للشخص</option>
-                <option value="spouse">زوج / زوجة</option>
-                <option value="child">ابن / ابنة</option>
-                <option value="sibling">أخ / أخت</option>
-              </select>
+            <div className="space-y-2">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={relType}
+                  onChange={(e) => setRelType(e.target.value as RelationshipType)}
+                  className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-amber-500 shrink-0"
+                >
+                  <option value="father">أب للشخص</option>
+                  <option value="mother">أم للشخص</option>
+                  <option value="spouse">زوج / زوجة</option>
+                  <option value="child">ابن / ابنة</option>
+                  <option value="sibling">أخ / أخت</option>
+                </select>
 
-              <select
-                value={relTargetId}
-                onChange={(e) => setRelTargetId(e.target.value)}
-                className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-amber-500"
-              >
-                <option value="">اختر شخصاً من المجموعة...</option>
-                {otherCandidates.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                <select
+                  value={relTargetId}
+                  onChange={(e) => setRelTargetId(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-amber-500"
+                >
+                  <option value="">-- اختر الشخص المعني بالعلاقة --</option>
+                  {otherCandidates.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
 
-              <button
-                type="button"
-                onClick={handleAddRelationship}
-                disabled={!relTargetId}
-                className="px-3 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>إضافة علاقة</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleAddRelationship}
+                  disabled={!relTargetId}
+                  className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs sm:text-sm hover:bg-amber-400 disabled:opacity-40 transition-colors flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>إضافة</span>
+                </button>
+              </div>
+
+              {relType === 'spouse' && (
+                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={isSpouseCurrent}
+                    onChange={(e) => setIsSpouseCurrent(e.target.checked)}
+                    className="rounded text-amber-500 focus:ring-0 bg-slate-900 border-slate-700"
+                  />
+                  <span>زواج حالي نشط (إذا كان زواجاً سابقاً أو تم الطلاق، أزل التحديد)</span>
+                </label>
+              )}
             </div>
           ) : (
-            <p className="text-xs text-slate-500">
-              أضف أشخاصاً آخرين للمجموعة لتتمكن من ربط العلاقات بينهم.
+            <p className="text-xs text-slate-400 italic">
+              يجب إضافة أشخاص آخرين في هذا العالم لتتمكن من ربط العلاقات معهم.
             </p>
           )}
 
-          {/* List of explicitly set relationships */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {relationships.map((rel) => {
-              const labelMap: Record<RelationshipType, string> = {
-                father: 'أب',
-                mother: 'أم',
-                spouse: 'زوج/ة',
-                child: 'ابن/ة',
-                sibling: 'أخ/ت',
-              };
-              return (
-                <div
-                  key={rel.id}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-slate-700 text-slate-200 rounded-xl text-xs"
-                >
-                  <span className="text-amber-400 font-semibold">{labelMap[rel.type]}:</span>
-                  <span>{rel.targetPersonName}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRelationship(rel.id)}
-                    className="p-0.5 text-slate-500 hover:text-rose-400 transition-colors mr-1"
+          {/* Explicit relationships list */}
+          {relationships.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <span className="text-xs font-bold text-slate-400 block">العلاقات المحددة:</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {relationships.map((rel) => (
+                  <div
+                    key={rel.id}
+                    className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs"
                   >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    <span className="text-slate-200">
+                      {rel.type === 'father'
+                        ? 'الوالد:'
+                        : rel.type === 'mother'
+                        ? 'الوالدة:'
+                        : rel.type === 'spouse'
+                        ? rel.isCurrent === false
+                          ? 'زوج/ة سابق:'
+                          : 'الزوج/ة:'
+                        : rel.type === 'child'
+                        ? 'الابن/ة:'
+                        : 'الأخ/ت:'}{' '}
+                      <strong className="text-amber-300 font-bold">{rel.targetPersonName}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRelationship(rel.id)}
+                      className="text-slate-500 hover:text-rose-400 p-1 transition-colors"
+                      title="حذف العلاقة"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Inferred relationships notice */}
           {inferredRels.length > 0 && (
-            <div className="pt-2 border-t border-slate-800/80">
-              <span className="text-[11px] font-semibold text-emerald-400 block mb-1">
-                علاقات تم استنتاجها تلقائياً بواسطة المحرك الذكي:
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1 text-xs">
+              <span className="font-bold text-amber-300 block">
+                علاقات مستنتجة تلقائياً بواسطة المحرك الذكي:
               </span>
-              <div className="flex flex-wrap gap-1.5">
-                {inferredRels.map((rel) => (
-                  <span
-                    key={rel.id}
-                    className="px-2.5 py-1 bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 rounded-lg text-[11px]"
-                  >
-                    {rel.type === 'child' ? 'ابن/ة' : rel.type === 'spouse' ? 'زوج/ة' : rel.type === 'sibling' ? 'أخ/ت' : rel.type}: {rel.targetPersonName}
-                  </span>
+              <ul className="list-disc list-inside space-y-0.5 text-slate-300 pr-1">
+                {inferredRels.map((inf) => (
+                  <li key={inf.id}>
+                    {inf.type === 'child'
+                      ? 'ابن/ابنة لـ'
+                      : inf.type === 'father'
+                      ? 'أب لـ'
+                      : inf.type === 'mother'
+                      ? 'أم لـ'
+                      : inf.type === 'spouse'
+                      ? 'زوج/ة لـ'
+                      : 'أخ/أخت لـ'}{' '}
+                    <strong className="text-amber-200">{inf.targetPersonName}</strong> (استنتاج عكسي)
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
         </div>
@@ -433,10 +548,10 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-200">
               <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>الخصائص والحقائق المخصصة (Custom Facts)</span>
+              <span>الخصائص والعادات والصفات المخصصة (Custom Facts)</span>
             </div>
             <span className="text-[11px] text-slate-400">
-              تساعد المحرك على طرح أسئلة ذكية وممتعة
+              تتحول تلقائياً لأسئلة ذكية في اللعبة
             </span>
           </div>
 
@@ -451,86 +566,56 @@ export const PersonEditorModal: React.FC<PersonEditorModalProps> = ({
                   handleAddFact();
                 }
               }}
-              placeholder="مثال: يلعب كرة القدم، يحب الشخشوخة، معجب بـ..."
+              placeholder="مثال: يحب صيد السمك، يرتدي نظارات، سريع الغضب..."
               className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-amber-500"
             />
             <button
               type="button"
               onClick={handleAddFact}
               disabled={!newFactText.trim()}
-              className="px-3.5 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 shrink-0"
+              className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs sm:text-sm hover:bg-amber-400 disabled:opacity-40 transition-colors flex items-center gap-1 cursor-pointer shrink-0"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>إضافة</span>
+              <Plus className="w-4 h-4" />
+              <span>إضافة خاصية</span>
             </button>
           </div>
 
-          {/* Quick suggestions */}
-          {suggestedFacts.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              <span className="text-[11px] text-slate-400 self-center">اقتراحات سريعة:</span>
-              {suggestedFacts.slice(0, 4).map((sugg) => (
-                <button
-                  key={sugg}
-                  type="button"
-                  onClick={() => {
-                    setFacts([
-                      ...facts,
-                      {
-                        id: `fact_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-                        key: sugg,
-                        value: true,
-                        category: 'خصائص',
-                      },
-                    ]);
-                    audio.playClick();
-                  }}
-                  className="px-2 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] rounded-lg transition-colors"
+          {facts.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {facts.map((fact) => (
+                <div
+                  key={fact.id}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200"
                 >
-                  + {sugg}
-                </button>
+                  <span>{fact.key}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFact(fact.id)}
+                    className="text-slate-400 hover:text-rose-400 transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
             </div>
           )}
-
-          {/* List of current facts */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {facts.map((f) => (
-              <div
-                key={f.id}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-slate-700 text-slate-200 rounded-xl text-xs"
-              >
-                <span>{f.key}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveFact(f.id)}
-                  className="p-0.5 text-slate-500 hover:text-rose-400 transition-colors"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-            {facts.length === 0 && (
-              <p className="text-xs text-slate-500">لا توجد خصائص مضافة بعد.</p>
-            )}
-          </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/80">
+        {/* Footer actions */}
+        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs sm:text-sm font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+            className="px-4 py-2 text-xs sm:text-sm font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
           >
             إلغاء
           </button>
           <button
             type="submit"
             disabled={errors.length > 0 || !name.trim()}
-            className="px-6 py-2.5 bg-amber-500 text-slate-950 font-bold text-xs sm:text-sm rounded-xl hover:bg-amber-400 shadow-md shadow-amber-500/20 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-amber-500/20 disabled:opacity-40 transition-all cursor-pointer font-heading"
           >
-            حفظ الشخص
+            {personToEdit ? 'حفظ التعديلات' : 'إضافة الشخص للعالم'}
           </button>
         </div>
       </form>
